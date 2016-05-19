@@ -49,46 +49,69 @@ GATEWAY_EUI=${GATEWAY_EUI^^} # toupper
 
 echo "Detected EUI $GATEWAY_EUI from $GATEWAY_EUI_NIC"
 
+INSTALL_DIR="/opt/ttn-gateway"
+if [ ! -d "$INSTALL_DIR" ]; then mkdir $INSTALL_DIR; fi
+pushd $INSTALL_DIR
+
+LOCAL_CONFIG_FILE=$INSTALL_DIR/bin/local_conf.json
+
 read -r -p "Do you want to use remote settings file? [y/N]" response
 response=${response,,} # tolower
 
 if [[ $response =~ ^(yes|y) ]]; then
-    NEW_HOSTNAME="ttn-gateway"
+    # NEW_HOSTNAME="ttn-gateway"
     REMOTE_CONFIG=true
+    CHANGE_CONFIG=true
 else
-    printf "       Host name [ttn-gateway]:"
-    read NEW_HOSTNAME
-    if [[ $NEW_HOSTNAME == "" ]]; then NEW_HOSTNAME="ttn-gateway"; fi
+    # Check for existing local config file
+    if [ -e $LOCAL_CONFIG_FILE ]; then
+        read -r -p "Do you want to create a new local settings file? [y/N]" response
+        response=${response,,} # tolower
+        if [[ $response =~ ^(yes|y) ]]; then
+            CHANGE_CONFIG=true
+        else
+            CHANGE_CONFIG=false
+        fi
+    else
+    	  CHANGE_CONFIG=true
+    fi
+  
+    if [ "$CHANGE_CONFIG" = true ] ; then
+        printf "       Host name [ttn-gateway]:"
+        read NEW_HOSTNAME
+        if [[ $NEW_HOSTNAME == "" ]]; then NEW_HOSTNAME="ttn-gateway"; fi
 
-    printf "       Descriptive name [ttn-ic880a]:"
-    read GATEWAY_NAME
-    if [[ $GATEWAY_NAME == "" ]]; then GATEWAY_NAME="ttn-ic880a"; fi
+        printf "       Descriptive name [ttn-ic880a]:"
+        read GATEWAY_NAME
+        if [[ $GATEWAY_NAME == "" ]]; then GATEWAY_NAME="ttn-ic880a"; fi
 
-    printf "       Contact email: "
-    read GATEWAY_EMAIL
+        printf "       Contact email: "
+        read GATEWAY_EMAIL
 
-    printf "       Latitude [0]: "
-    read GATEWAY_LAT
-    if [[ $GATEWAY_LAT == "" ]]; then GATEWAY_LAT=0; fi
+        printf "       Latitude [0]: "
+        read GATEWAY_LAT
+        if [[ $GATEWAY_LAT == "" ]]; then GATEWAY_LAT=0; fi
 
-    printf "       Longitude [0]: "
-    read GATEWAY_LON
-    if [[ $GATEWAY_LON == "" ]]; then GATEWAY_LON=0; fi
+        printf "       Longitude [0]: "
+        read GATEWAY_LON
+        if [[ $GATEWAY_LON == "" ]]; then GATEWAY_LON=0; fi
 
-    printf "       Altitude [0]: "
-    read GATEWAY_ALT
-    if [[ $GATEWAY_ALT == "" ]]; then GATEWAY_ALT=0; fi
+        printf "       Altitude [0]: "
+        read GATEWAY_ALT
+        if [[ $GATEWAY_ALT == "" ]]; then GATEWAY_ALT=0; fi
+    fi
 fi
 
+if [ "$CHANGE_CONFIG" = true ] ; then
+    # Change hostname if needed
+    CURRENT_HOSTNAME=$(hostname)
 
-# Change hostname if needed
-CURRENT_HOSTNAME=$(hostname)
-
-if [[ $NEW_HOSTNAME != $CURRENT_HOSTNAME ]]; then
-    echo "Updating hostname to '$NEW_HOSTNAME'..."
-    hostname $NEW_HOSTNAME
-    echo $NEW_HOSTNAME > /etc/hostname
-    sed -i "s/$CURRENT_HOSTNAME/$NEW_HOSTNAME/" /etc/hosts
+    if [[ $NEW_HOSTNAME != $CURRENT_HOSTNAME ]]; then
+        echo "Updating hostname to '$NEW_HOSTNAME'..."
+        hostname $NEW_HOSTNAME
+        echo $NEW_HOSTNAME > /etc/hostname
+        sed -i "s/$CURRENT_HOSTNAME/$NEW_HOSTNAME/" /etc/hosts
+    fi
 fi
 
 # Check dependencies
@@ -96,10 +119,6 @@ echo "Installing dependencies..."
 apt-get install swig libftdi-dev python-dev
 
 # Install LoRaWAN packet forwarder repositories
-INSTALL_DIR="/opt/ttn-gateway"
-if [ ! -d "$INSTALL_DIR" ]; then mkdir $INSTALL_DIR; fi
-pushd $INSTALL_DIR
-
 # Build libraries
 if [ ! -d libmpsse ]; then
     git clone https://github.com/devttys0/libmpsse.git
@@ -157,10 +176,10 @@ if [ -f ./bin/poly_pkt_fwd ]; then rm ./bin/poly_pkt_fwd; fi
 ln -s $INSTALL_DIR/packet_forwarder/poly_pkt_fwd/poly_pkt_fwd ./bin/poly_pkt_fwd
 cp -f ./packet_forwarder/poly_pkt_fwd/global_conf.json ./bin/global_conf.json
 
-LOCAL_CONFIG_FILE=$INSTALL_DIR/bin/local_conf.json
-
-# Remove old config file
-if [ -e $LOCAL_CONFIG_FILE ]; then rm $LOCAL_CONFIG_FILE; fi;
+# Rename old config file
+if [ "$CHANGE_CONFIG" = true ] ; then
+    if [ -e $LOCAL_CONFIG_FILE ]; then mv $LOCAL_CONFIG_FILE $LOCAL_CONFIG_FILE.old; fi;
+fi
 
 if [ "$REMOTE_CONFIG" = true ] ; then
     # Get remote configuration repo
@@ -177,7 +196,9 @@ if [ "$REMOTE_CONFIG" = true ] ; then
 
     popd
 else
-    echo -e "{\n\t\"gateway_conf\": {\n\t\t\"gateway_ID\": \"$GATEWAY_EUI\",\n\t\t\"servers\": [ { \"server_address\": \"router.eu.thethings.network\", \"serv_port_up\": 1700, \"serv_port_down\": 1700, \"serv_enabled\": true } ],\n\t\t\"ref_latitude\": $GATEWAY_LAT,\n\t\t\"ref_longitude\": $GATEWAY_LON,\n\t\t\"ref_altitude\": $GATEWAY_ALT,\n\t\t\"contact_email\": \"$GATEWAY_EMAIL\",\n\t\t\"description\": \"$GATEWAY_NAME\" \n\t}\n}" >$LOCAL_CONFIG_FILE
+  if [ "$CHANGE_CONFIG" = true ] ; then
+      echo -e "{\n\t\"gateway_conf\": {\n\t\t\"gateway_ID\": \"$GATEWAY_EUI\",\n\t\t\"servers\": [ { \"server_address\": \"router.eu.thethings.network\", \"serv_port_up\": 1700, \"serv_port_down\": 1700, \"serv_enabled\": true } ],\n\t\t\"ref_latitude\": $GATEWAY_LAT,\n\t\t\"ref_longitude\": $GATEWAY_LON,\n\t\t\"ref_altitude\": $GATEWAY_ALT,\n\t\t\"contact_email\": \"$GATEWAY_EMAIL\",\n\t\t\"description\": \"$GATEWAY_NAME\" \n\t}\n}" >$LOCAL_CONFIG_FILE
+  fi
 fi
 
 popd
